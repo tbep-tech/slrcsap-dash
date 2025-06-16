@@ -1,9 +1,8 @@
 library(shiny)
 library(bslib)
-library(DT)
+library(reactable)
 library(plotly)
 library(slrcsap)
-library(ggplot2)
 library(tidyr)
 library(dplyr)
 
@@ -76,16 +75,14 @@ ui <- page_navbar(
       card(
         card_header("Historical Sea Level Plot"),
         card_body(
-          plotlyOutput("sealevel_plot", height = "450px")
+          plotlyOutput("sealevel_plot", height = "550px")
         )
       ),
-      
-      br(),
-      
+
       card(
         card_header("Historical Sea Level Data"),
         card_body(
-          DT::dataTableOutput("sealevel_table")
+          reactableOutput("sealevel_table")
         )
       )
     )
@@ -137,16 +134,14 @@ ui <- page_navbar(
       card(
         card_header("Sea Level Rise Projections Plot"),
         card_body(
-          plotlyOutput("scenario_plot", height = "450px")
+          plotlyOutput("scenario_plot", height = '550px')
         )
       ),
-      
-      br(),
       
       card(
         card_header("Sea Level Rise Projections Data"),
         card_body(
-          DT::dataTableOutput("scenario_table")
+          reactableOutput("scenario_table")
         )
       )
     )
@@ -266,9 +261,6 @@ server <- function(input, output, session) {
                div(class = "alert alert-success", role = "alert",
                    icon("check-circle"), " Historical data loaded successfully!"))
       
-      # Auto-hide success message after 3 seconds
-      shinyjs::delay(3000, removeUI("#status > div"))
-      
     }, error = function(e) {
       values$sealevel_data <- NULL
       
@@ -313,9 +305,6 @@ server <- function(input, output, session) {
                div(class = "alert alert-success", role = "alert",
                    icon("check-circle"), " Projection data loaded successfully!"))
       
-      # Auto-hide success message after 3 seconds
-      shinyjs::delay(3000, removeUI("#status2 > div"))
-      
     }, error = function(e) {
       values$scenario_data <- NULL
       
@@ -328,98 +317,157 @@ server <- function(input, output, session) {
     })
   })
   
-  # Historical sea level plot
+  # Historical sea level plot - Pure plotly, no ggplot2
   output$sealevel_plot <- renderPlotly({
     if (is.null(values$sealevel_data)) {
-      # Create a simple message plot for plotly
-      p <- ggplot() + 
-        annotate("text", x = 0.5, y = 0.5, 
-                 label = "Click 'Load Data' to view historical sea level data", 
-                 size = 5, color = "gray50") +
-        theme_void() +
-        xlim(0, 1) + ylim(0, 1)
-      ggplotly(p) %>%
-        config(displayModeBar = FALSE)
+      # Create a simple message plot
+      plot_ly() %>%
+        add_annotations(
+          text = "Click 'Load Data' to view historical sea level data",
+          xref = "paper", yref = "paper",
+          x = 0.5, y = 0.5, xanchor = 'center', yanchor = 'center',
+          showarrow = FALSE,
+          font = list(size = 16, color = "gray")
+        ) %>%
+        layout(
+          xaxis = list(showgrid = FALSE, showticklabels = FALSE, zeroline = FALSE),
+          yaxis = list(showgrid = FALSE, showticklabels = FALSE, zeroline = FALSE)
+        )
     } else {
       tryCatch({
-        # Use plotly = TRUE argument
-        plot_sealevel(values$sealevel_data, units = input$units, plotly = TRUE) %>%
-          layout(title = list(text = paste("Historical Sea Level Data - Gauge", values$current_gauge),
-                              x = 0.5))
+        # Try slrcsap's built-in plotly functionality first
+        if (exists("plot_sealevel")) {
+          plot_sealevel(values$sealevel_data, units = input$units, plotly = TRUE) %>%
+            layout(title = list(text = paste("Historical Sea Level Data - Gauge", values$current_gauge),
+                                x = 0.5))
+        } else {
+          stop("plot_sealevel function not available")
+        }
       }, error = function(e) {
-        # Create error plot for plotly
-        p <- ggplot() + 
-          annotate("text", x = 0.5, y = 0.5, 
-                   label = paste("Error creating plot:", e$message), 
-                   size = 4, color = "red") +
-          theme_void() +
-          xlim(0, 1) + ylim(0, 1)
-        ggplotly(p) %>%
-          config(displayModeBar = FALSE)
+        # Fallback: create plotly plot manually
+        data <- values$sealevel_data
+        y_col <- if(input$units == "ft") "msl_ft" else "msl_m"
+        unit_label <- if(input$units == "ft") "feet" else "meters"
+        
+        plot_ly(data, x = ~date, y = as.formula(paste0("~", y_col)), 
+                type = 'scatter', mode = 'lines',
+                line = list(color = '#0066cc', width = 2)) %>%
+          layout(
+            title = list(text = paste("Historical Sea Level Data - Gauge", values$current_gauge),
+                         font = list(size = 16)),
+            xaxis = list(title = "Date"),
+            yaxis = list(title = paste("Mean Sea Level (", unit_label, ")")),
+            hovermode = 'x unified'
+          )
       })
     }
   })
   
-  # Historical sea level data table
-  output$sealevel_table <- DT::renderDataTable({
+  # Historical sea level data table - Using reactable
+  output$sealevel_table <- renderReactable({
     if (is.null(values$sealevel_data)) {
-      return(data.frame(Message = "Click 'Load Data' to view historical sea level data"))
+      return(reactable(
+        data.frame(Message = "Click 'Load Data' to view historical sea level data"),
+        columns = list(Message = colDef(name = "", align = "center"))
+      ))
     }
     
     # Select columns based on units
     if (input$units == "ft") {
       display_data <- values$sealevel_data[, c("gauge", "Year", "Month", "date", "msl_ft")]
-      names(display_data)[5] <- "MSL (ft)"
+      names(display_data)[5] <- "msl"
     } else {
       display_data <- values$sealevel_data[, c("gauge", "Year", "Month", "date", "msl_m")]
-      names(display_data)[5] <- "MSL (m)"
+      names(display_data)[5] <- "msl"
     }
     
-    DT::datatable(display_data, 
-                  options = list(pageLength = 15, scrollX = TRUE,
-                                 dom = 'Bfrtip',
-                                 buttons = c('copy', 'csv', 'excel')),
-                  rownames = FALSE,
-                  class = 'table-striped table-hover')
+    reactable(
+      display_data,
+      filterable = FALSE,
+      searchable = FALSE,
+      defaultPageSize = 15,
+      showPageSizeOptions = TRUE,
+      pageSizeOptions = c(10, 15, 25, 50),
+      highlight = TRUE,
+      striped = TRUE,
+      columns = list(
+        gauge = colDef(name = "Gauge ID"),
+        Year = colDef(name = "Year"),
+        Month = colDef(name = "Month"),
+        date = colDef(name = "Date"),
+        msl = colDef(name = paste0("MSL (", input$units, ")"), format = colFormat(digits = 3))
+      )
+    )
   })
   
-  # Scenario plot
+  # Scenario plot - Pure plotly, no ggplot2
   output$scenario_plot <- renderPlotly({
     if (is.null(values$scenario_data)) {
-      # Create a simple message plot for plotly
-      p <- ggplot() + 
-        annotate("text", x = 0.5, y = 0.5, 
-                 label = "Click 'Load Data' to view sea level rise projections", 
-                 size = 5, color = "gray50") +
-        theme_void() +
-        xlim(0, 1) + ylim(0, 1)
-      ggplotly(p) %>%
-        config(displayModeBar = FALSE)
+      # Create a simple message plot
+      plot_ly() %>%
+        add_annotations(
+          text = "Click 'Load Data' to view sea level rise projections",
+          xref = "paper", yref = "paper",
+          x = 0.5, y = 0.5, xanchor = 'center', yanchor = 'center',
+          showarrow = FALSE,
+          font = list(size = 16, color = "gray")
+        ) %>%
+        layout(
+          xaxis = list(showgrid = FALSE, showticklabels = FALSE, zeroline = FALSE),
+          yaxis = list(showgrid = FALSE, showticklabels = FALSE, zeroline = FALSE)
+        )
     } else {
       tryCatch({
-        # Use plotly = TRUE argument
-        plot_scenario(values$scenario_data, units = input$units2, plotly = TRUE) %>%
-          layout(title = list(text = paste("Sea Level Rise Projections - Station ID", unique(values$scenario_data$id)),
-                              x = 0.5),
-                 legend = list(orientation = "h", x = 0.5, xanchor = "center", y = -0.2))
+        # Try slrcsap's built-in plotly functionality first
+        if (exists("plot_scenario")) {
+          plot_scenario(values$scenario_data, units = input$units2, plotly = TRUE) %>%
+            layout(title = list(text = paste("Sea Level Rise Projections - Station ID", unique(values$scenario_data$id)),
+                                x = 0.5),
+                   legend = list(orientation = "h", x = 0.5, xanchor = "center", y = -0.2))
+        } else {
+          stop("plot_scenario function not available")
+        }
       }, error = function(e) {
-        # Create error plot for plotly
-        p <- ggplot() + 
-          annotate("text", x = 0.5, y = 0.5, 
-                   label = paste("Error creating plot:", e$message), 
-                   size = 4, color = "red") +
-          theme_void() +
-          xlim(0, 1) + ylim(0, 1)
-        ggplotly(p) %>%
-          config(displayModeBar = FALSE)
+        # Fallback: create plotly plot manually
+        data <- values$scenario_data
+        y_col <- if(input$units2 == "ft") "slr_ft" else "slr_m"
+        unit_label <- if(input$units2 == "ft") "feet" else "meters"
+        
+        # Create color palette
+        colors <- c("#0066cc", "#198754", "#ffc107", "#dc3545", "#6c757d")
+        scenarios <- unique(data$scenario)
+        color_map <- setNames(colors[1:length(scenarios)], scenarios)
+        
+        plot_ly() %>%
+          add_trace(
+            data = data,
+            x = ~year, y = as.formula(paste0("~", y_col)),
+            color = ~scenario,
+            colors = color_map,
+            type = 'scatter', 
+            mode = 'lines+markers',
+            line = list(width = 3),
+            marker = list(size = 6)
+          ) %>%
+          layout(
+            title = list(text = paste("Sea Level Rise Projections - Station ID", unique(data$id)),
+                         font = list(size = 16)),
+            xaxis = list(title = "Year"),
+            yaxis = list(title = paste("Sea Level Rise (", unit_label, ")")),
+            legend = list(orientation = "h", x = 0.5, xanchor = "center", y = -0.2),
+            hovermode = 'x unified'
+          )
       })
     }
   })
   
-  # Scenario data table
-  output$scenario_table <- DT::renderDataTable({
+  # Scenario data table - Using reactable
+  output$scenario_table <- renderReactable({
     if (is.null(values$scenario_data)) {
-      return(data.frame(Message = "Click 'Load Data' to view sea level rise projections"))
+      return(reactable(
+        data.frame(Message = "Click 'Load Data' to view sea level rise projections"),
+        columns = list(Message = colDef(name = "", align = "center"))
+      ))
     }
     
     # Select columns based on units
@@ -433,36 +481,48 @@ server <- function(input, output, session) {
       unit_suffix <- " (m)"
     }
     
-    # Convert to wide format using tidyr - first pivot then rename
+    # Convert to wide format using tidyr
     wide_data <- display_data %>%
       tidyr::pivot_wider(
         names_from = scenario,
         values_from = all_of(value_col)
       ) %>%
       dplyr::rename(
-        "Station ID" = id,
+        "Station_ID" = id,
         "Year" = year
       ) %>%
       dplyr::arrange(Year)
     
     # Add unit suffix to scenario column names
-    scenario_cols <- names(wide_data)[!names(wide_data) %in% c("Station ID", "Year")]
+    scenario_cols <- names(wide_data)[!names(wide_data) %in% c("Station_ID", "Year")]
     new_names <- paste0(scenario_cols, unit_suffix)
     names(wide_data)[names(wide_data) %in% scenario_cols] <- new_names
     
-    # Convert to data frame for DT
-    wide_data <- as.data.frame(wide_data)
+    # Create column definitions for reactable
+    col_defs <- list(
+      Station_ID = colDef(name = "Station ID"),
+      Year = colDef(name = "Year")
+    )
     
-    # Get final scenario column names for formatting
-    final_scenario_cols <- names(wide_data)[!names(wide_data) %in% c("Station ID", "Year")]
+    # Add formatted columns for scenario data
+    for (col_name in new_names) {
+      col_defs[[col_name]] <- colDef(
+        name = col_name,
+        format = colFormat(digits = 3)
+      )
+    }
     
-    DT::datatable(wide_data, 
-                  options = list(pageLength = 15, scrollX = TRUE,
-                                 dom = 'Bfrtip',
-                                 buttons = c('copy', 'csv', 'excel')),
-                  rownames = FALSE,
-                  class = 'table-striped table-hover') %>%
-      DT::formatRound(columns = final_scenario_cols, digits = 3)
+    reactable(
+      wide_data,
+      filterable = FALSE,
+      searchable = FALSE,
+      defaultPageSize = 15,
+      showPageSizeOptions = TRUE,
+      pageSizeOptions = c(10, 15, 25, 50),
+      highlight = TRUE,
+      striped = TRUE,
+      columns = col_defs
+    )
   })
 }
 
