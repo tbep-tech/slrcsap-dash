@@ -1,7 +1,6 @@
 library(shiny)
 library(bslib)
 library(reactable)
-library(plotly)
 library(slrcsap)
 library(tidyr)
 library(dplyr)
@@ -75,10 +74,12 @@ ui <- page_navbar(
       card(
         card_header("Historical Sea Level Plot"),
         card_body(
-          plotlyOutput("sealevel_plot", height = "550px")
+          plotly::plotlyOutput("sealevel_plot", height = "550px")
         )
       ),
-
+      
+      br(),
+      
       card(
         card_header("Historical Sea Level Data"),
         card_body(
@@ -134,9 +135,11 @@ ui <- page_navbar(
       card(
         card_header("Sea Level Rise Projections Plot"),
         card_body(
-          plotlyOutput("scenario_plot", height = '550px')
+          plotly::plotlyOutput("scenario_plot", height = '550px')
         )
       ),
+      
+      br(),
       
       card(
         card_header("Sea Level Rise Projections Data"),
@@ -286,12 +289,16 @@ server <- function(input, output, session) {
     
     # Load scenario data (need to map NOAA gauge ID to PSMSL ID)
     tryCatch({
-      # For demonstration, using a mapping for common gauges
+      # Mapping for known gauges only
       psmsl_id <- switch(as.character(gauge_id),
                          "8726520" = 520,  # St. Petersburg
-                         "8727520" = 428,  # Cedar Key  
-                         "8724580" = 188,  # Key West (approximate)
-                         520) # Default to St. Petersburg
+                         "8727520" = 428,  # Cedar Key
+                         NULL) # Return NULL for unknown gauges
+      
+      # Check if gauge is supported
+      if (is.null(psmsl_id)) {
+        stop(paste("Gauge ID", gauge_id, "is not supported for projections."))
+      }
       
       if (length(input$scenarios) == 0) {
         stop("Please select at least one scenario")
@@ -318,48 +325,24 @@ server <- function(input, output, session) {
   })
   
   # Historical sea level plot - Pure plotly, no ggplot2
-  output$sealevel_plot <- renderPlotly({
+  output$sealevel_plot <- plotly::renderPlotly({
     if (is.null(values$sealevel_data)) {
       # Create a simple message plot
-      plot_ly() %>%
-        add_annotations(
+      plotly::plot_ly() %>%
+        plotly::add_annotations(
           text = "Click 'Load Data' to view historical sea level data",
           xref = "paper", yref = "paper",
           x = 0.5, y = 0.5, xanchor = 'center', yanchor = 'center',
           showarrow = FALSE,
           font = list(size = 16, color = "gray")
         ) %>%
-        layout(
+        plotly::layout(
           xaxis = list(showgrid = FALSE, showticklabels = FALSE, zeroline = FALSE),
           yaxis = list(showgrid = FALSE, showticklabels = FALSE, zeroline = FALSE)
         )
     } else {
-      tryCatch({
-        # Try slrcsap's built-in plotly functionality first
-        if (exists("plot_sealevel")) {
-          plot_sealevel(values$sealevel_data, units = input$units, plotly = TRUE) %>%
-            layout(title = list(text = paste("Historical Sea Level Data - Gauge", values$current_gauge),
-                                x = 0.5))
-        } else {
-          stop("plot_sealevel function not available")
-        }
-      }, error = function(e) {
-        # Fallback: create plotly plot manually
-        data <- values$sealevel_data
-        y_col <- if(input$units == "ft") "msl_ft" else "msl_m"
-        unit_label <- if(input$units == "ft") "feet" else "meters"
-        
-        plot_ly(data, x = ~date, y = as.formula(paste0("~", y_col)), 
-                type = 'scatter', mode = 'lines',
-                line = list(color = '#0066cc', width = 2)) %>%
-          layout(
-            title = list(text = paste("Historical Sea Level Data - Gauge", values$current_gauge),
-                         font = list(size = 16)),
-            xaxis = list(title = "Date"),
-            yaxis = list(title = paste("Mean Sea Level (", unit_label, ")")),
-            hovermode = 'x unified'
-          )
-      })
+      # Use slrcsap's built-in plotly functionality
+      plot_sealevel(values$sealevel_data, units = input$units, plotly = TRUE)
     }
   })
   
@@ -380,7 +363,7 @@ server <- function(input, output, session) {
       display_data <- values$sealevel_data[, c("gauge", "Year", "Month", "date", "msl_m")]
       names(display_data)[5] <- "msl"
     }
-    
+
     reactable(
       display_data,
       filterable = FALSE,
@@ -401,63 +384,24 @@ server <- function(input, output, session) {
   })
   
   # Scenario plot - Pure plotly, no ggplot2
-  output$scenario_plot <- renderPlotly({
+  output$scenario_plot <- plotly::renderPlotly({
     if (is.null(values$scenario_data)) {
       # Create a simple message plot
-      plot_ly() %>%
-        add_annotations(
+      plotly::plot_ly() %>%
+        plotly::add_annotations(
           text = "Click 'Load Data' to view sea level rise projections",
           xref = "paper", yref = "paper",
           x = 0.5, y = 0.5, xanchor = 'center', yanchor = 'center',
           showarrow = FALSE,
           font = list(size = 16, color = "gray")
         ) %>%
-        layout(
+        plotly::layout(
           xaxis = list(showgrid = FALSE, showticklabels = FALSE, zeroline = FALSE),
           yaxis = list(showgrid = FALSE, showticklabels = FALSE, zeroline = FALSE)
         )
     } else {
-      tryCatch({
-        # Try slrcsap's built-in plotly functionality first
-        if (exists("plot_scenario")) {
-          plot_scenario(values$scenario_data, units = input$units2, plotly = TRUE) %>%
-            layout(title = list(text = paste("Sea Level Rise Projections - Station ID", unique(values$scenario_data$id)),
-                                x = 0.5),
-                   legend = list(orientation = "h", x = 0.5, xanchor = "center", y = -0.2))
-        } else {
-          stop("plot_scenario function not available")
-        }
-      }, error = function(e) {
-        # Fallback: create plotly plot manually
-        data <- values$scenario_data
-        y_col <- if(input$units2 == "ft") "slr_ft" else "slr_m"
-        unit_label <- if(input$units2 == "ft") "feet" else "meters"
-        
-        # Create color palette
-        colors <- c("#0066cc", "#198754", "#ffc107", "#dc3545", "#6c757d")
-        scenarios <- unique(data$scenario)
-        color_map <- setNames(colors[1:length(scenarios)], scenarios)
-        
-        plot_ly() %>%
-          add_trace(
-            data = data,
-            x = ~year, y = as.formula(paste0("~", y_col)),
-            color = ~scenario,
-            colors = color_map,
-            type = 'scatter', 
-            mode = 'lines+markers',
-            line = list(width = 3),
-            marker = list(size = 6)
-          ) %>%
-          layout(
-            title = list(text = paste("Sea Level Rise Projections - Station ID", unique(data$id)),
-                         font = list(size = 16)),
-            xaxis = list(title = "Year"),
-            yaxis = list(title = paste("Sea Level Rise (", unit_label, ")")),
-            legend = list(orientation = "h", x = 0.5, xanchor = "center", y = -0.2),
-            hovermode = 'x unified'
-          )
-      })
+      # Use slrcsap's built-in plotly functionality
+      plot_scenario(values$scenario_data, units = input$units2, plotly = TRUE)
     }
   })
   
