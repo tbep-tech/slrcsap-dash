@@ -40,17 +40,23 @@ ui <- page_navbar(
     layout_sidebar(
       sidebar = sidebar(
         title = "Controls",
-        width = 300,
+        width = 400,
         
-        # Gauge selection
-        selectInput("gauge", 
+        selectInput("gauge",
                     "Select NOAA Gauge:",
                     choices = gauge_options,
-                    selected = 8726520),
+                    selected = 8726520
+        ),
         
         # Custom gauge input
         numericInput("custom_gauge",
-                     "Or enter custom gauge ID:",
+                     label = bslib::popover(
+                       trigger = list(
+                         "Or enter custom gauge ID:",
+                         icon("info-circle")
+                       ),
+                       HTML('Find more NOAA gauge stations at: <a href="https://tidesandcurrents.noaa.gov/stations.html" target="_blank">https://tidesandcurrents.noaa.gov/stations.html</a>')
+                     ),
                      value = NULL,
                      min = 1000000,
                      max = 9999999),
@@ -75,7 +81,8 @@ ui <- page_navbar(
         card_header("Historical Sea Level Plot"),
         card_body(
           plotly::plotlyOutput("sealevel_plot", height = "550px")
-        )
+        ), 
+        full_screen = TRUE
       ),
       
       br(),
@@ -84,7 +91,8 @@ ui <- page_navbar(
         card_header("Historical Sea Level Data"),
         card_body(
           reactableOutput("sealevel_table")
-        )
+        ), 
+        full_screen = TRUE
       )
     )
   ),
@@ -95,17 +103,23 @@ ui <- page_navbar(
     layout_sidebar(
       sidebar = sidebar(
         title = "Controls",
-        width = 300,
+        width = 400,
         
         # Gauge selection
-        selectInput("gauge2", 
-                    "Select NOAA Gauge:",
+        selectInput("gauge2",
+                    "Select PSMSL ID:",
                     choices = gauge_options,
                     selected = 8726520),
         
         # Custom gauge input
         numericInput("custom_gauge2",
-                     "Or enter custom gauge ID:",
+                     label = bslib::popover(
+                       trigger = list(
+                         "Or enter custom PSMSL ID:",
+                         icon("info-circle")
+                       ),
+                       HTML('Find more PSMSL IDs at: <a href="https://sealevel.nasa.gov/task-force-scenario-tool" target="_blank">https://sealevel.nasa.gov/task-force-scenario-tool</a>')
+                     ),
                      value = NULL,
                      min = 1000000,
                      max = 9999999),
@@ -136,7 +150,8 @@ ui <- page_navbar(
         card_header("Sea Level Rise Projections Plot"),
         card_body(
           plotly::plotlyOutput("scenario_plot", height = '550px')
-        )
+        ),
+        full_screen = TRUE
       ),
       
       br(),
@@ -145,7 +160,8 @@ ui <- page_navbar(
         card_header("Sea Level Rise Projections Data"),
         card_body(
           reactableOutput("scenario_table")
-        )
+        ), 
+        full_screen = TRUE
       )
     )
   ),
@@ -290,16 +306,12 @@ server <- function(input, output, session) {
     # Load scenario data (need to map NOAA gauge ID to PSMSL ID)
     tryCatch({
       # Mapping for known gauges only
-      psmsl_id <- switch(as.character(gauge_id),
-                         "8726520" = 520,  # St. Petersburg
-                         "8727520" = 428,  # Cedar Key
-                         NULL) # Return NULL for unknown gauges
-      
-      # Check if gauge is supported
-      if (is.null(psmsl_id)) {
-        stop(paste("Gauge ID", gauge_id, "is not supported for projections."))
-      }
-      
+      psmsl_id <- dplyr::case_when(
+          as.character(gauge_id) == "8726520" ~ 520,  # St. Petersburg
+          as.character(gauge_id) == "8727520" ~ 428,  # Cedar Key
+          T ~ as.numeric(gauge_id)
+      )
+
       if (length(input$scenarios) == 0) {
         stop("Please select at least one scenario")
       }
