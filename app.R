@@ -200,11 +200,11 @@ ui <- page_navbar(
           ),
           
           h5("Package Information:"),
-          p("Built with the", 
-            tags$a("slrcsap R package", 
-                   href = "https://tbep-tech.github.io/slrcsap/", 
-                   target = "_blank"),
-            "developed by the Tampa Bay Estuary Program.")
+          p(HTML(paste0("Built with the ",
+                        '<a href="https://tbep-tech.github.io/slrcsap/" target="_blank">slrcsap R package</a>',
+                        " developed by the Tampa Bay Estuary Program. The package and dashboard were created following recommendations from the Tampa Bay Climate Science Advisory Panel, report available ",
+                        '<a href="https://drive.google.com/file/d/1ocnPh3eRCPGkp0LwrUaIXb5SU6mNq_YR/view" target="_blank">here</a>',
+                        ".")))
         )
       ),
       
