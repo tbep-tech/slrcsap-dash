@@ -1,9 +1,10 @@
 library(shiny)
 library(bslib)
 library(reactable)
-library(slrcsap)
+# library(slrcsap)
 library(tidyr)
 library(dplyr)
+devtools::load_all('../slrcsap')
 
 # Define common NOAA gauge stations
 gauge_options <- list(
@@ -43,7 +44,7 @@ ui <- page_navbar(
         width = 400,
         
         selectInput("gauge",
-                    "Select NOAA Gauge:",
+                    "Select Gauge:",
                     choices = gauge_options,
                     selected = 8726520
         ),
