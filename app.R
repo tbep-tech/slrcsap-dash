@@ -1,10 +1,9 @@
 library(shiny)
 library(bslib)
 library(reactable)
-# library(slrcsap)
+library(slrcsap)
 library(tidyr)
 library(dplyr)
-devtools::load_all('../slrcsap')
 
 # Define common NOAA gauge stations
 gauge_options <- list(
